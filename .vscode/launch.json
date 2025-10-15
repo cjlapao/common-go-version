@@ -1,0 +1,23 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Test version package",
+			"type": "go",
+			"request": "launch",
+			"mode": "test",
+			"program": "${workspaceFolder}/version"
+		},
+		{
+			"name": "Run banner example",
+			"type": "go",
+			"request": "launch",
+			"mode": "test",
+			"program": "${workspaceFolder}/version",
+			"args": [
+				"-run",
+				"Example"
+			]
+		}
+	]
+}
