@@ -248,11 +248,6 @@ func formatVersionLine(info *Info) string {
 	return strings.Join(parts, " ")
 }
 
-// formatBoxLine formats a line to fit within the box with borders and padding using default width
-func formatBoxLine(content string) string {
-	return formatBoxLineWithWidth(content, defaultBoxWidth)
-}
-
 // formatBoxLineWithWidth formats a line to fit within the box with borders and padding using specified width
 func formatBoxLineWithWidth(content string, boxWidth int) string {
 	// Calculate available width (excluding borders and padding)
