@@ -24,3 +24,4 @@ vendor/
 
 # Security scan outputs
 *.sarif
+.gocache/

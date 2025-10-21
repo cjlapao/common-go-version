@@ -3,6 +3,7 @@ package version
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -45,10 +46,6 @@ func BannerWithStyle(appName string, info *Info, style FontStyle) string {
 // BannerWithOptions generates a complete banner with customizable options
 func BannerWithOptions(appName string, info *Info, opts BannerOptions) string {
 	// Set defaults
-	if opts.FixedWidth == 0 {
-		opts.FixedWidth = defaultBoxWidth
-	}
-
 	// Default ShowBorder based on AutoWidth if not explicitly set
 	showBorder := true
 	if opts.ShowBorder != nil {
@@ -62,31 +59,46 @@ func BannerWithOptions(appName string, info *Info, opts BannerOptions) string {
 
 	// Generate title lines (ASCII art or simple text)
 	if opts.UseASCII {
-		if opts.AutoWidth {
+		switch {
+		case opts.AutoWidth:
 			// Generate without width constraint to get natural size
 			titleLines = GenerateASCIIArtWithStyle(appName, 0, opts.FontStyle)
-		} else {
+		case opts.FixedWidth > 0:
+			available := opts.FixedWidth - 4 - paddingLeft*2
+			if available < 0 {
+				available = 0
+			}
 			// Generate with width constraint
-			titleLines = GenerateASCIIArtWithStyle(appName, opts.FixedWidth-4-paddingLeft*2, opts.FontStyle)
+			titleLines = GenerateASCIIArtWithStyle(appName, available, opts.FontStyle)
+		default:
+			// No explicit width - let ASCII art determine width
+			titleLines = GenerateASCIIArtWithStyle(appName, 0, opts.FontStyle)
 		}
 	} else {
 		// Simple text title - split by newlines if multi-line
-		titleLines = strings.Split(appName, "\n")
+		titleLines = splitManualTitleLines(appName)
+	}
+
+	if len(titleLines) == 0 {
+		titleLines = []string{""}
 	}
 
 	// Calculate the longest line in title for centering (trim trailing spaces)
-	maxTitleWidth := 0
-	for _, line := range titleLines {
-		trimmedLen := len(strings.TrimRight(line, " "))
-		if trimmedLen > maxTitleWidth {
-			maxTitleWidth = trimmedLen
-		}
-	}
+	maxTitleWidth := longestLineWidth(titleLines)
+	contentWidth := maxContentWidth(titleLines, info)
 
 	// Calculate box width
-	boxWidth := opts.FixedWidth
-	if opts.AutoWidth {
-		boxWidth = calculateAutoWidth(appName, titleLines, info)
+	var boxWidth int
+	switch {
+	case opts.AutoWidth:
+		boxWidth = calculateAutoWidth(titleLines, info)
+	case opts.FixedWidth > 0:
+		boxWidth = opts.FixedWidth
+	default:
+		boxWidth = contentWidth + 4
+		if boxWidth < defaultBoxWidth {
+			boxWidth = defaultBoxWidth
+		}
 	}
 
 	// Top border
@@ -96,14 +108,15 @@ func BannerWithOptions(appName string, info *Info, opts BannerOptions) string {
 		lines = append(lines, formatBoxLineWithWidth("", boxWidth))
 	}
 
-	// Add title lines (centered based on longest title line)
-	for _, line := range titleLines {
-		if showBorder {
-			lines = append(lines, formatBoxLineWithWidth(line, boxWidth))
-		} else {
-			lines = append(lines, line)
+		// Add title lines (centered within box when border is shown)
+		for _, line := range titleLines {
+			if showBorder {
+				centered := centerText(line, boxWidth-4)
+				lines = append(lines, formatBoxLineWithWidth(centered, boxWidth))
+			} else {
+				lines = append(lines, line)
+			}
 		}
-	}
 
 	// Empty line after title
 	if showBorder {
@@ -179,51 +192,90 @@ func BannerWithOptions(appName string, info *Info, opts BannerOptions) string {
 	return strings.Join(lines, "\n")
 }
 
-// calculateAutoWidth determines the optimal width based on content
-func calculateAutoWidth(appName string, titleLines []string, info *Info) int {
-	maxWidth := len(appName) + 4 // minimum for simple text
+// splitManualTitleLines breaks manual multi-line titles into individual lines while preserving indentation.
+func splitManualTitleLines(title string) []string {
+	if title == "" {
+		return []string{""}
+	}
 
-	// Check ASCII art width
-	for _, line := range titleLines {
-		if len(line) > maxWidth {
-			maxWidth = len(line)
+	normalized := strings.ReplaceAll(title, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "")
+
+	lines := strings.Split(normalized, "\n")
+
+	// Remove leading and trailing empty lines introduced by raw string literals.
+	start := 0
+	end := len(lines)
+
+	for start < end && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+
+	if start >= end {
+		return []string{""}
+	}
+
+	return lines[start:end]
+}
+
+// longestLineWidth returns the maximum visible width among provided lines.
+func longestLineWidth(lines []string) int {
+	maxWidth := 0
+	for _, line := range lines {
+		width := visibleWidth(line)
+		if width > maxWidth {
+			maxWidth = width
 		}
 	}
+	return maxWidth
+}
 
-	// Check version line width
+// visibleWidth calculates the width of a line ignoring trailing whitespace that doesn't affect rendering.
+func visibleWidth(line string) int {
+	trimmed := strings.TrimRight(line, " \t")
+	return utf8.RuneCountInString(trimmed)
+}
+
+// maxContentWidth calculates the maximum width among title, version, and metadata lines.
+func maxContentWidth(titleLines []string, info *Info) int {
+	maxWidth := longestLineWidth(titleLines)
+
 	versionLine := formatVersionLine(info)
-	if len(versionLine) > maxWidth {
-		maxWidth = len(versionLine)
+	if width := utf8.RuneCountInString(versionLine); width > maxWidth {
+		maxWidth = width
 	}
 
-	// Check metadata widths
 	if info.Author != "" {
-		w := len(fmt.Sprintf("Author:    %s", info.Author))
-		if w > maxWidth {
-			maxWidth = w
+		if width := utf8.RuneCountInString(fmt.Sprintf("Author:    %s", info.Author)); width > maxWidth {
+			maxWidth = width
 		}
 	}
 	if info.Company != "" {
-		w := len(fmt.Sprintf("Company:   %s", info.Company))
-		if w > maxWidth {
-			maxWidth = w
+		if width := utf8.RuneCountInString(fmt.Sprintf("Company:   %s", info.Company)); width > maxWidth {
+			maxWidth = width
 		}
 	}
 	if info.Copyright != "" {
-		w := len(fmt.Sprintf("Copyright: %s", info.Copyright))
-		if w > maxWidth {
-			maxWidth = w
+		if width := utf8.RuneCountInString(fmt.Sprintf("Copyright: %s", info.Copyright)); width > maxWidth {
+			maxWidth = width
 		}
 	}
 	if info.Repo != "" {
-		w := len(fmt.Sprintf("Repo:      %s", info.Repo))
-		if w > maxWidth {
-			maxWidth = w
+		if width := utf8.RuneCountInString(fmt.Sprintf("Repo:      %s", info.Repo)); width > maxWidth {
+			maxWidth = width
 		}
 	}
 
+	return maxWidth
+}
+
+// calculateAutoWidth determines the optimal width based on content
+func calculateAutoWidth(titleLines []string, info *Info) int {
 	// Add padding for borders and margins
-	return maxWidth + 4 // 2 for borders, 2 for padding
+	return maxContentWidth(titleLines, info) + 4 // 2 for borders, 2 for padding
 }
 
 // formatVersionLine creates a formatted version string
@@ -252,28 +304,36 @@ func formatVersionLine(info *Info) string {
 func formatBoxLineWithWidth(content string, boxWidth int) string {
 	// Calculate available width (excluding borders and padding)
 	availableWidth := boxWidth - 4 // 2 for borders (* *) and 2 for padding (space on each side)
+	if availableWidth < 0 {
+		availableWidth = 0
+	}
 
-	// Pad or truncate content to fit
-	contentLen := len(content)
-	if contentLen > availableWidth {
-		content = content[:availableWidth]
-	} else if contentLen < availableWidth {
-		content = content + strings.Repeat(" ", availableWidth-contentLen)
+	// Pad or truncate content to fit while respecting rune boundaries
+	runes := []rune(content)
+	if len(runes) > availableWidth {
+		runes = runes[:availableWidth]
+	}
+
+	trimmed := string(runes)
+	currentWidth := utf8.RuneCountInString(trimmed)
+	if currentWidth < availableWidth {
+		trimmed += strings.Repeat(" ", availableWidth-currentWidth)
 	}
 
 	// Add border and padding
-	return fmt.Sprintf("%s %s %s", borderChar, content, borderChar)
+	return fmt.Sprintf("%s %s %s", borderChar, trimmed, borderChar)
 }
 
 // centerText centers text within a given width
 func centerText(text string, width int) string {
-	textLen := len(text)
-	if textLen >= width {
+	textLen := utf8.RuneCountInString(text)
+	if textLen >= width || width <= 0 {
 		return text
 	}
 
-	leftPadding := (width - textLen) / 2
-	rightPadding := width - textLen - leftPadding
+	totalPadding := width - textLen
+	leftPadding := totalPadding / 2
+	rightPadding := totalPadding - leftPadding
 
 	return strings.Repeat(" ", leftPadding) + text + strings.Repeat(" ", rightPadding)
 }
