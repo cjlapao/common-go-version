@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - VERSION
+      - .VERSION
 
 permissions:
   contents: write
@@ -63,7 +63,7 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          version=$(cat VERSION)
+          version=$(cat .VERSION)
           echo "current=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
@@ -72,7 +72,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.current }}
         run: |
           mkdir -p dist
-          files="version go.mod VERSION"
+          files="version go.mod .VERSION"
           if [ -f go.sum ]; then
             files="${files} go.sum"
           fi
